@@ -17,7 +17,7 @@ export function SettingsView({
 }: SettingsViewProps) {
   const overlayEnabled = snapshot?.overlay_enabled ?? true;
   const resolvedLogPath = snapshot?.resolved_path ?? logPath;
-  const formattedLogPath = resolvedLogPath.replaceAll("\\", "\\\u200b").replaceAll("/", "/\u200b");
+  const formattedLogPath = resolvedLogPath.split("\\").join("\\\u200b").split("/").join("/\u200b");
 
   return (
     <div className="settings-shell">
