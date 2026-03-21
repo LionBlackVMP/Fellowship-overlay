@@ -1,0 +1,321 @@
+html,
+body,
+#root {
+  margin: 0;
+  width: 100vw;
+  height: 100vh;
+  overflow: hidden;
+  font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+}
+
+body {
+  background: transparent;
+}
+
+:root {
+  color: #e8e3d7;
+}
+
+.settings-shell {
+  width: 100%;
+  height: 100%;
+  background:
+    radial-gradient(circle at top center, rgba(40, 57, 76, 0.22), transparent 34%),
+    linear-gradient(180deg, #16212c 0%, #101923 58%, #0d141c 100%);
+  color: #e8e3d7;
+}
+
+.settings-panel {
+  height: 100%;
+  padding: 24px;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+}
+
+.settings-title {
+  font-size: 24px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #d4a14e;
+  text-shadow: 0 1px 0 rgba(0, 0, 0, 0.4);
+}
+
+.settings-block {
+  width: min(820px, 100%);
+  margin-top: 24px;
+  flex: 1;
+  min-height: 0;
+  padding: 20px;
+  border-radius: 20px;
+  background:
+    linear-gradient(180deg, rgba(19, 31, 43, 0.96), rgba(16, 25, 35, 0.95)),
+    rgba(16, 25, 35, 0.95);
+  border: 1px solid rgba(196, 146, 68, 0.34);
+  box-shadow:
+    inset 0 1px 0 rgba(197, 221, 243, 0.08),
+    inset 0 0 0 1px rgba(7, 13, 19, 0.45);
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+}
+
+.field {
+  display: grid;
+  gap: 8px;
+  font-size: 13px;
+  color: rgba(226, 220, 207, 0.82);
+}
+
+.text-input {
+  min-height: 72px;
+  border: 1px solid rgba(196, 146, 68, 0.34);
+  border-radius: 12px;
+  background: linear-gradient(180deg, rgba(11, 17, 24, 0.92), rgba(16, 24, 34, 0.96));
+  color: #f0ece2;
+  padding: 10px 12px;
+  outline: none;
+  box-shadow: inset 0 1px 0 rgba(207, 228, 246, 0.05);
+  resize: none;
+  line-height: 1.35;
+  overflow: hidden;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  box-sizing: border-box;
+}
+
+.text-display {
+  display: flex;
+  align-items: center;
+  white-space: pre-wrap;
+  word-break: normal;
+  overflow-wrap: normal;
+}
+
+.status-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 14px;
+  font-size: 13px;
+  color: rgba(226, 220, 207, 0.78);
+}
+
+.status-pill {
+  padding: 4px 10px;
+  border-radius: 999px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.status-loading {
+  background: rgba(71, 111, 151, 0.22);
+  color: #b4d4f2;
+}
+
+.status-watching {
+  background: rgba(59, 98, 83, 0.34);
+  color: #86efd0;
+}
+
+.status-error {
+  background: rgba(126, 52, 52, 0.3);
+  color: #f0b7b0;
+}
+
+.status-idle {
+  background: rgba(122, 95, 46, 0.24);
+  color: #d8b06d;
+}
+
+.settings-actions {
+  margin-top: 18px;
+}
+
+.toggle-button {
+  min-width: 170px;
+  height: 42px;
+  border: 1px solid rgba(196, 146, 68, 0.34);
+  border-radius: 12px;
+  padding: 0 16px;
+  background: linear-gradient(180deg, rgba(24, 35, 48, 0.96), rgba(16, 24, 34, 0.96));
+  color: #f0ece2;
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+  box-shadow: inset 0 1px 0 rgba(207, 228, 246, 0.05);
+  transition:
+    background 0.2s ease,
+    border-color 0.2s ease,
+    color 0.2s ease;
+}
+
+.toggle-button.is-enable-action {
+  background: rgba(84, 189, 129, 0.16);
+  border-color: rgba(84, 189, 129, 0.34);
+  color: #b7f2cb;
+}
+
+.toggle-button.is-disable-action {
+  background: rgba(255, 107, 107, 0.12);
+  border-color: rgba(255, 107, 107, 0.26);
+  color: #ffcac7;
+}
+
+.toggle-button:hover {
+  border-color: rgba(214, 165, 82, 0.56);
+}
+
+.settings-copy {
+  display: grid;
+  gap: 8px;
+  font-size: 14px;
+  color: rgba(226, 220, 207, 0.82);
+}
+
+.settings-footer {
+  margin-top: auto;
+}
+
+.message {
+  margin: 14px 0 0;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.message.error {
+  color: #f0b7b0;
+}
+
+.message.hint {
+  margin-top: auto;
+  color: rgba(226, 220, 207, 0.68);
+}
+
+.overlay-shell,
+.overlay-frames {
+  width: 100%;
+  height: 100%;
+  background: transparent;
+  user-select: none;
+  -webkit-user-select: none;
+  cursor: default;
+}
+
+.overlay-shell {
+  pointer-events: none;
+}
+
+.overlay-frames {
+  display: flex;
+  align-items: flex-start;
+  gap: 1px;
+  /* padding: 3px; */
+  box-sizing: border-box;
+  pointer-events: none;
+}
+
+.player-frame {
+  min-width: 70px;
+  max-width: 82px;
+  padding: 5px 5px 7px;
+  border-radius: 11px;
+  background: linear-gradient(180deg, rgba(22, 34, 54, 0.92), rgba(11, 20, 35, 0.9));
+  border: 1px solid rgba(192, 152, 88, 0.45);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 231, 189, 0.08),
+    0 0 0 1px rgba(7, 11, 18, 0.35);
+  pointer-events: auto;
+  cursor: default;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.frame-name {
+  font-size: 12px;
+  font-weight: 800;
+  text-align: center;
+  line-height: 1.2;
+  margin-bottom: 5px;
+  word-break: break-word;
+  text-shadow: 0 1px 0 rgba(0, 0, 0, 0.35);
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.frame-trinkets {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.trinket-chip {
+  position: relative;
+  width: 54px;
+  height: 54px;
+  margin: 0 auto;
+  border-radius: 10px;
+  overflow: hidden;
+  background: rgba(8, 14, 25, 0.92);
+  border: 1px solid rgba(197, 156, 91, 0.34);
+  user-select: none;
+  -webkit-user-select: none;
+  cursor: default;
+}
+
+.trinket-chip.is-ready {
+  opacity: 1;
+}
+
+.trinket-chip.is-cooling {
+  box-shadow:
+    inset 0 0 0 1px rgba(241, 209, 152, 0.18),
+    0 0 10px rgba(10, 16, 27, 0.18);
+}
+
+.trinket-icon {
+  width: 100%;
+  height: 100%;
+  display: block;
+  object-fit: cover;
+  pointer-events: none;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-user-drag: none;
+}
+
+.trinket-cooldown-sweep {
+  position: absolute;
+  inset: 0;
+  background:
+    conic-gradient(
+      from 0deg,
+      rgba(8, 14, 25, 0.12) 0deg,
+      rgba(8, 14, 25, 0.12) calc((1 - var(--cooldown-progress)) * 360deg),
+      rgba(8, 14, 25, 0.66) calc((1 - var(--cooldown-progress)) * 360deg),
+      rgba(8, 14, 25, 0.66) 360deg
+    );
+  transition: background 0.9s linear;
+  pointer-events: none;
+}
+
+.trinket-timer {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(180deg, rgba(7, 14, 24, 0.08), rgba(7, 14, 24, 0.24));
+  color: #f1d4a1;
+  font-size: 15px;
+  font-weight: 800;
+  line-height: 1;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.7);
+  pointer-events: none;
+  user-select: none;
+  -webkit-user-select: none;
+  cursor: default;
+}
