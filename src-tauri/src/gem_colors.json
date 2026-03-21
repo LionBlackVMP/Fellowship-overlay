@@ -1,0 +1,28 @@
+{
+  "colors": {
+    "amethyst": {
+      "id": 0,
+      "label": "Amethyst"
+    },
+    "diamond": {
+      "id": 1,
+      "label": "Diamond"
+    },
+    "ruby": {
+      "id": 3,
+      "label": "Ruby"
+    },
+    "emerald": {
+      "id": 2,
+      "label": "Emerald"
+    },
+    "sapphire": {
+      "id": 4,
+      "label": "Sapphire"
+    },
+    "topaz": {
+      "id": 5,
+      "label": "Topaz"
+    }
+  }
+}

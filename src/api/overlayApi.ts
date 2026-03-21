@@ -5,8 +5,8 @@ export function getDefaultLogPath() {
   return invoke<string>("get_default_log_path");
 }
 
-export function pollOverlayState(path: string) {
-  return invoke<OverlaySnapshot>("poll_overlay_state", { path });
+export function pollOverlayState(path: string, manageWindow = true) {
+  return invoke<OverlaySnapshot>("get_overlay_state", { path, manageWindow });
 }
 
 export function startOverlayDrag() {
@@ -18,5 +18,5 @@ export function openOverlayMainMenu() {
 }
 
 export function setOverlayEnabled(enabled: boolean) {
-  return invoke("set_overlay_enabled", { enabled });
+  return invoke<OverlaySnapshot>("set_overlay_enabled", { enabled });
 }

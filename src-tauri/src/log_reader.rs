@@ -7,8 +7,10 @@ use std::fs::File;
 use std::io::{Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
+use std::thread;
+use std::time::Duration;
 use std::time::{SystemTime, UNIX_EPOCH};
-use tauri::{AppHandle, LogicalSize, Manager, State, WebviewWindow};
+use tauri::{AppHandle, Emitter, LogicalSize, Manager, State, WebviewWindow};
 #[cfg(target_os = "windows")]
 use windows::Win32::Foundation::{CloseHandle, HWND};
 #[cfg(target_os = "windows")]
@@ -24,6 +26,8 @@ use windows::Win32::UI::WindowsAndMessaging::{
 pub const DEFAULT_LOG_DIR: &str =
     r"C:\Program Files (x86)\Steam\steamapps\common\Fellowship\fellowship\Saved\CombatLogs";
 const OVERLAY_WINDOW_LABEL: &str = "overlay";
+const OVERLAY_SNAPSHOT_EVENT: &str = "overlay://snapshot";
+const OVERLAY_ERROR_EVENT: &str = "overlay://error";
 #[cfg(target_os = "windows")]
 const GAME_PROCESS_NAMES: &[&str] = &["fellowship.exe", "fellowship-win64-shipping.exe"];
 
@@ -52,24 +56,35 @@ struct ActiveCooldown {
     started_at_ms: u64,
 }
 
+struct CombatantInfo {
+    player_name: String,
+    class_id: u32,
+    diamond_gem_power: u32,
+}
+
 struct OverlayRuntime {
     cursor: ReaderCursor,
     overlay_enabled: bool,
     dungeon_active: bool,
     players: BTreeSet<String>,
     player_classes: HashMap<String, u32>,
+    player_relic_cdr: HashMap<String, f64>,
     equipped_relics: HashMap<String, BTreeMap<u32, RelicMeta>>,
     active_cooldowns: HashMap<String, ActiveCooldown>,
     processed_line_count: usize,
     overlay_visibility_misses: u8,
-    relics_by_ability: HashMap<u32, RelicMeta>,
+    gem_color_indices: HashMap<String, usize>,
+    relics_by_activation: HashMap<u32, RelicMeta>,
+    relics_by_item_id: HashMap<u32, RelicMeta>,
+    manually_minimized: bool,
 }
 
 pub struct OverlayState {
     runtime: Mutex<OverlayRuntime>,
+    last_snapshot: Mutex<Option<OverlaySnapshot>>,
 }
 
-#[derive(Clone, Serialize)]
+#[derive(Clone, PartialEq, Serialize)]
 pub struct CooldownView {
     pub key: String,
     pub relic_id: u32,
@@ -81,7 +96,7 @@ pub struct CooldownView {
     pub ready: bool,
 }
 
-#[derive(Serialize)]
+#[derive(Clone, PartialEq, Serialize)]
 pub struct PlayerOverlay {
     pub name: String,
     pub class_id: Option<u32>,
@@ -89,7 +104,7 @@ pub struct PlayerOverlay {
     pub cooldowns: Vec<CooldownView>,
 }
 
-#[derive(Serialize)]
+#[derive(Clone, PartialEq, Serialize)]
 pub struct OverlaySnapshot {
     pub resolved_path: String,
     pub overlay_enabled: bool,
@@ -111,6 +126,17 @@ struct RawCatalog {
     item_mapping: HashMap<String, u32>,
 }
 
+#[derive(Deserialize)]
+struct RawGemColorEntry {
+    id: usize,
+    label: String,
+}
+
+#[derive(Deserialize)]
+struct RawGemCatalog {
+    colors: HashMap<String, RawGemColorEntry>,
+}
+
 impl OverlayState {
     pub fn new() -> Self {
         Self {
@@ -120,42 +146,37 @@ impl OverlayState {
                 dungeon_active: false,
                 players: BTreeSet::new(),
                 player_classes: HashMap::new(),
+                player_relic_cdr: HashMap::new(),
                 equipped_relics: HashMap::new(),
                 active_cooldowns: HashMap::new(),
                 processed_line_count: 0,
                 overlay_visibility_misses: 0,
-                relics_by_ability: load_relics_by_ability().unwrap_or_default(),
+                gem_color_indices: load_gem_color_indices().unwrap_or_default(),
+                relics_by_activation: load_relics_by_activation().unwrap_or_default(),
+                relics_by_item_id: load_relics_by_item_id().unwrap_or_default(),
+                manually_minimized: false, // <- добавлено
             }),
+            last_snapshot: Mutex::new(None),
         }
     }
 }
 
 #[tauri::command]
-pub fn poll_overlay_state(
-    path: String,
+pub fn get_overlay_state(
+    path: Option<String>,
+    manage_window: Option<bool>,
     state: State<'_, OverlayState>,
     app: AppHandle,
 ) -> Result<OverlaySnapshot, String> {
-    let resolved_path = resolve_latest_log_path(&path)?;
-    let resolved_path_string = resolved_path.to_string_lossy().to_string();
-    let mut runtime = state.runtime.lock().map_err(|e| e.to_string())?;
-
-    if runtime.cursor.path.as_deref() != Some(resolved_path_string.as_str()) {
-        bootstrap_runtime_from_log(&resolved_path, &mut runtime, &resolved_path_string)?;
-    }
-
-    let lines = read_new_lines(&resolved_path, &mut runtime.cursor)?;
-    apply_lines_to_runtime(&mut runtime, &lines, Some(&app));
-
-    let snapshot = build_snapshot(&runtime, resolved_path_string);
-    resize_overlay_window(&app, &snapshot);
-    sync_overlay_visibility(&app, &mut runtime);
-
-    Ok(snapshot)
+    let path = path.unwrap_or_else(|| DEFAULT_LOG_DIR.to_string());
+    refresh_overlay_snapshot(&path, manage_window.unwrap_or(true), &state, &app)
 }
 
 #[tauri::command]
-pub fn minimize_overlay(window: WebviewWindow) -> Result<(), String> {
+pub fn minimize_overlay(window: WebviewWindow, state: State<'_, OverlayState>) -> Result<(), String> {
+    if let Ok(mut runtime) = state.runtime.lock() {
+        runtime.manually_minimized = true; // отметим, что свернули вручную
+    }
     window.hide().map_err(|e| e.to_string())
 }
 
@@ -175,22 +196,95 @@ pub fn set_overlay_enabled(
     enabled: bool,
     state: State<'_, OverlayState>,
     app: AppHandle,
-) -> Result<(), String> {
+) -> Result<OverlaySnapshot, String> {
     let mut runtime = state.runtime.lock().map_err(|e| e.to_string())?;
     runtime.overlay_enabled = enabled;
     runtime.overlay_visibility_misses = 0;
     sync_overlay_visibility(&app, &mut runtime);
-    Ok(())
+    drop(runtime);
+
+    let snapshot = refresh_overlay_snapshot(DEFAULT_LOG_DIR, true, &state, &app)?;
+    let _ = app.emit(OVERLAY_SNAPSHOT_EVENT, &snapshot);
+    if let Ok(mut last_snapshot) = state.last_snapshot.lock() {
+        *last_snapshot = Some(snapshot.clone());
+    }
+    Ok(snapshot)
+}
+
+pub fn start_overlay_monitor<R: tauri::Runtime>(app: AppHandle<R>) {
+    thread::spawn(move || loop {
+        {
+            let state = app.state::<OverlayState>();
+            match refresh_overlay_snapshot(DEFAULT_LOG_DIR, true, &state, &app) {
+                Ok(snapshot) => {
+                    let should_emit = {
+                        let mut last_snapshot = match state.last_snapshot.lock() {
+                            Ok(guard) => guard,
+                            Err(_) => {
+                                thread::sleep(Duration::from_millis(250));
+                                continue;
+                            }
+                        };
+
+                        if last_snapshot.as_ref() == Some(&snapshot) {
+                            false
+                        } else {
+                            *last_snapshot = Some(snapshot.clone());
+                            true
+                        }
+                    };
+
+                    if should_emit {
+                        let _ = app.emit(OVERLAY_SNAPSHOT_EVENT, &snapshot);
+                    }
+                }
+                Err(error) => {
+                    let _ = app.emit(OVERLAY_ERROR_EVENT, error);
+                }
+            }
+        }
+
+        thread::sleep(Duration::from_millis(250));
+    });
+}
+
+fn refresh_overlay_snapshot<R: tauri::Runtime>(
+    path: &str,
+    manage_window: bool,
+    state: &State<'_, OverlayState>,
+    app: &AppHandle<R>,
+) -> Result<OverlaySnapshot, String> {
+    let resolved_path = resolve_latest_log_path(path)?;
+    let resolved_path_string = resolved_path.to_string_lossy().to_string();
+    let mut runtime = state.runtime.lock().map_err(|e| e.to_string())?;
+
+    if runtime.cursor.path.as_deref() != Some(resolved_path_string.as_str()) {
+        bootstrap_runtime_from_log(&resolved_path, &mut runtime, &resolved_path_string)?;
+    }
+
+    let lines = read_new_lines(&resolved_path, &mut runtime.cursor)?;
+    let dungeon_started_now = apply_lines_to_runtime(&mut runtime, &lines);
+    if dungeon_started_now {
+        show_main_window(app);
+    }
+
+    let snapshot = build_snapshot(&runtime, resolved_path_string);
+    if manage_window {
+        resize_overlay_window(app, &snapshot);
+        sync_overlay_visibility(app, &mut runtime);
+    }
+
+    Ok(snapshot)
 }
 
 fn apply_lines_to_runtime(
     runtime: &mut OverlayRuntime,
     lines: &[String],
-    app: Option<&AppHandle>,
-) {
+) -> bool {
     let mut dungeon_started_now = false;
     let mut combatant_snapshot: BTreeSet<String> = BTreeSet::new();
     let mut class_snapshot: HashMap<String, u32> = HashMap::new();
+    let mut relic_cdr_snapshot: HashMap<String, f64> = HashMap::new();
     let mut equipped_snapshot: HashMap<String, BTreeMap<u32, RelicMeta>> = HashMap::new();
 
     for line in lines {
@@ -200,6 +294,7 @@ fn apply_lines_to_runtime(
             runtime.dungeon_active = true;
             runtime.players.clear();
             runtime.player_classes.clear();
+            runtime.player_relic_cdr.clear();
             runtime.equipped_relics.clear();
             runtime.active_cooldowns.clear();
             dungeon_started_now = true;
@@ -209,10 +304,15 @@ fn apply_lines_to_runtime(
             continue;
         }
 
-        if let Some((player_name, class_id)) = parse_combatant_info(line) {
+        if let Some(combatant_info) = parse_combatant_info(line, &runtime.gem_color_indices) {
+            let player_name = combatant_info.player_name.clone();
             combatant_snapshot.insert(player_name.clone());
-            class_snapshot.insert(player_name.clone(), class_id);
-            let equipped = parse_equipped_relics(line, &runtime.relics_by_ability);
+            class_snapshot.insert(player_name.clone(), combatant_info.class_id);
+            relic_cdr_snapshot.insert(
+                player_name.clone(),
+                relic_cooldown_multiplier(combatant_info.class_id, combatant_info.diamond_gem_power),
+            );
+            let equipped = parse_equipped_relics(line, &runtime.relics_by_item_id);
             if !equipped.is_empty() {
                 equipped_snapshot.insert(
                     player_name,
@@ -227,8 +327,12 @@ fn apply_lines_to_runtime(
         }
 
         if let Some((player, relic, started_at_ms)) =
-            parse_activation(line, &runtime.relics_by_ability)
+            parse_relic_trigger(line, &runtime.relics_by_activation)
         {
+            let duration_seconds = adjusted_relic_cooldown(
+                relic.base_cooldown,
+                runtime.player_relic_cdr.get(&player).copied().unwrap_or(1.0),
+            );
             let key = format!("{player}:{}", relic.id);
             runtime.active_cooldowns.insert(
                 key.clone(),
@@ -238,7 +342,7 @@ fn apply_lines_to_runtime(
                     relic_id: relic.id,
                     relic_name: relic.name.clone(),
                     relic_icon_src: relic.icon_src.clone(),
-                    duration_seconds: relic.base_cooldown,
+                    duration_seconds,
                     started_at_ms,
                 },
             );
@@ -248,6 +352,7 @@ fn apply_lines_to_runtime(
     if !combatant_snapshot.is_empty() {
         runtime.players = combatant_snapshot;
         runtime.player_classes = class_snapshot;
+        runtime.player_relic_cdr = relic_cdr_snapshot;
         runtime.equipped_relics = equipped_snapshot;
         let current_players = runtime.players.clone();
         runtime
@@ -257,11 +362,7 @@ fn apply_lines_to_runtime(
 
     prune_expired_cooldowns(&mut runtime.active_cooldowns);
 
-    if dungeon_started_now {
-      if let Some(app) = app {
-        show_main_window(app);
-      }
-    }
+    dungeon_started_now
 }
 
 fn build_snapshot(runtime: &OverlayRuntime, resolved_path: String) -> OverlaySnapshot {
@@ -319,7 +420,10 @@ fn build_snapshot(runtime: &OverlayRuntime, resolved_path: String) -> OverlaySna
                             relic_id: relic.id,
                             relic_name: relic.name,
                             relic_icon_src: relic.icon_src,
-                            duration_seconds: relic.base_cooldown,
+                            duration_seconds: adjusted_relic_cooldown(
+                                relic.base_cooldown,
+                                runtime.player_relic_cdr.get(name).copied().unwrap_or(1.0),
+                            ),
                             remaining_seconds: 0,
                             progress: 0.0,
                             ready: true,
@@ -382,15 +486,32 @@ fn resize_overlay_window<R: tauri::Runtime>(app: &AppHandle<R>, snapshot: &Overl
         .unwrap_or(1)
         .max(1) as f64;
 
-    let frame_width = 82.0;
-    let frame_gap = 3.0;
     let outer_padding = 6.0;
-    let frame_header = 28.0;
-    let trinket_height = 58.0;
-    let width = (outer_padding * 2.0) + (player_count * frame_width) + ((player_count - 1.0) * frame_gap);
-    let height = outer_padding + frame_header + (max_trinkets * trinket_height) + 10.0;
+    let frame_gap = 3.0;
+    let frame_name_width = 82.0;
+    let frame_horizontal_padding = 12.0;
+    let trinket_width = 54.0;
+    let trinket_gap = 4.0;
+    let frame_height = 86.0;
+    let width = outer_padding * 2.0
+        + frame_name_width
+        + frame_horizontal_padding
+        + max_trinkets * trinket_width
+        + (max_trinkets - 1.0) * trinket_gap;
+    let height = outer_padding * 2.0 + player_count * frame_height + (player_count - 1.0) * frame_gap;
 
-    let _ = window.set_size(LogicalSize::new(width, height));
+    let should_resize = window
+        .inner_size()
+        .map(|size| {
+            let width_diff = (size.width as f64 - width).abs();
+            let height_diff = (size.height as f64 - height).abs();
+            width_diff > 1.0 || height_diff > 1.0
+        })
+        .unwrap_or(true);
+
+    if should_resize {
+        let _ = window.set_size(LogicalSize::new(width, height));
+    }
 }
 
 fn bootstrap_runtime_from_log(
@@ -415,6 +536,7 @@ fn bootstrap_runtime_from_log(
     runtime.dungeon_active = false;
     runtime.players.clear();
     runtime.player_classes.clear();
+    runtime.player_relic_cdr.clear();
     runtime.equipped_relics.clear();
     runtime.active_cooldowns.clear();
     runtime.processed_line_count = all_lines.len();
@@ -429,7 +551,7 @@ fn bootstrap_runtime_from_log(
     }
 
     let slice = all_lines[start_index..].to_vec();
-    apply_lines_to_runtime(runtime, &slice, None);
+    apply_lines_to_runtime(runtime, &slice);
     runtime.processed_line_count = all_lines.len();
     Ok(())
 }
@@ -471,15 +593,24 @@ fn read_new_lines(path: &Path, cursor: &mut ReaderCursor) -> Result<Vec<String>,
     Ok(parts.into_iter().filter(|line| !line.is_empty()).collect())
 }
 
-fn parse_combatant_info(line: &str) -> Option<(String, u32)> {
+fn parse_combatant_info(
+    line: &str,
+    gem_color_indices: &HashMap<String, usize>,
+) -> Option<CombatantInfo> {
     let parts = line.split('|').collect::<Vec<_>>();
-    if parts.len() < 7 || parts[1] != "COMBATANT_INFO" {
+    if parts.len() < 11 || parts[1] != "COMBATANT_INFO" {
         return None;
     }
 
     let player_name = clean_name(parts[4])?;
     let class_id = parts[6].parse::<u32>().ok()?;
-    Some((player_name, class_id))
+    let diamond_gem_power = parse_gem_power(parts[10], gem_color_indices, "diamond");
+
+    Some(CombatantInfo {
+        player_name,
+        class_id,
+        diamond_gem_power,
+    })
 }
 
 fn parse_player_name(line: &str) -> Option<String> {
@@ -493,6 +624,14 @@ fn parse_player_name(line: &str) -> Option<String> {
     }
 
     None
+}
+
+fn parse_relic_trigger(
+    line: &str,
+    relics_by_ability: &HashMap<u32, RelicMeta>,
+) -> Option<(String, RelicMeta, u64)> {
+    parse_activation(line, relics_by_ability)
+        .or_else(|| parse_effect_trigger(line, relics_by_ability))
 }
 
 fn parse_activation(
@@ -510,6 +649,32 @@ fn parse_activation(
     let started_at_ms = parse_timestamp_ms(line).unwrap_or_else(now_ms);
 
     Some((player, relic, started_at_ms))
+}
+
+fn parse_effect_trigger(
+    line: &str,
+    relics_by_ability: &HashMap<u32, RelicMeta>,
+) -> Option<(String, RelicMeta, u64)> {
+    let parts = line.split('|').collect::<Vec<_>>();
+    let event_type = parts.get(1).copied()?;
+    if event_type != "EFFECT_APPLIED" && event_type != "EFFECT_REFRESHED" {
+        return None;
+    }
+
+    let player = clean_name(parts.get(3).copied()?)?;
+    let started_at_ms = parse_timestamp_ms(line).unwrap_or_else(now_ms);
+
+    for token_index in (parts.len().saturating_sub(6)..parts.len()).rev() {
+        let Ok(ability_id) = parts[token_index].parse::<u32>() else {
+            continue;
+        };
+
+        if let Some(relic) = relics_by_ability.get(&ability_id) {
+            return Some((player, relic.clone(), started_at_ms));
+        }
+    }
+
+    None
 }
 
 fn parse_equipped_relics(
@@ -535,6 +700,23 @@ fn parse_equipped_relics(
     }
 
     relics
+}
+
+fn parse_gem_power(
+    gem_section: &str,
+    gem_color_indices: &HashMap<String, usize>,
+    color_name: &str,
+) -> u32 {
+    let Some(gem_index) = gem_color_indices.get(color_name).copied() else {
+        return 0;
+    };
+
+    let trimmed = gem_section.trim().trim_start_matches('[').trim_end_matches(']');
+    trimmed
+        .split(',')
+        .nth(gem_index)
+        .and_then(|value| value.trim().parse::<u32>().ok())
+        .unwrap_or(0)
 }
 
 fn extract_equipped_item_ids(equipment_section: &str) -> Vec<u32> {
@@ -620,6 +802,38 @@ fn now_ms() -> u64 {
         .unwrap_or(0)
 }
 
+fn relic_cooldown_multiplier(class_id: u32, diamond_gem_power: u32) -> f64 {
+    if class_id != 10 {
+        return 1.0;
+    }
+
+    if diamond_gem_power >= 2640 {
+        0.76
+    } else if diamond_gem_power >= 960 {
+        0.92
+    } else {
+        1.0
+    }
+}
+
+fn adjusted_relic_cooldown(base_cooldown: u32, multiplier: f64) -> u32 {
+    ((base_cooldown as f64) * multiplier).round().max(1.0) as u32
+}
+
+fn load_gem_color_indices() -> Result<HashMap<String, usize>, String> {
+    let catalog: RawGemCatalog =
+        serde_json::from_str(include_str!("gem_colors.json")).map_err(|e| e.to_string())?;
+
+    Ok(catalog
+        .colors
+        .into_iter()
+        .map(|(name, entry)| {
+            let _ = entry.label;
+            (name, entry.id)
+        })
+        .collect())
+}
+
 fn class_color(class_id: u32) -> &'static str {
     match class_id {
         22 => "#b46831",
@@ -637,7 +851,7 @@ fn class_color(class_id: u32) -> &'static str {
     }
 }
 
-fn load_relics_by_ability() -> Result<HashMap<u32, RelicMeta>, String> {
+fn load_relic_catalog() -> Result<(HashMap<u32, RelicMeta>, HashMap<u32, RelicMeta>), String> {
     let raw: RawCatalog =
         serde_json::from_str(include_str!("relics.json")).map_err(|e| e.to_string())?;
     let icons_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("icons");
@@ -659,18 +873,28 @@ fn load_relics_by_ability() -> Result<HashMap<u32, RelicMeta>, String> {
         })
         .collect::<HashMap<_, _>>();
 
-    let mut relics_by_ability = relics.clone();
+    let mut relics_by_item_id = HashMap::new();
     for (item_id, relic_id) in raw.item_mapping {
         let Ok(parsed_item_id) = item_id.parse::<u32>() else {
             continue;
         };
 
         if let Some(relic) = relics.get(&relic_id) {
-            relics_by_ability.insert(parsed_item_id, relic.clone());
+            relics_by_item_id.insert(parsed_item_id, relic.clone());
         }
     }
 
-    Ok(relics_by_ability)
+    Ok((relics, relics_by_item_id))
+}
+
+fn load_relics_by_activation() -> Result<HashMap<u32, RelicMeta>, String> {
+    let (relics_by_activation, _) = load_relic_catalog()?;
+    Ok(relics_by_activation)
+}
+
+fn load_relics_by_item_id() -> Result<HashMap<u32, RelicMeta>, String> {
+    let (_, relics_by_item_id) = load_relic_catalog()?;
+    Ok(relics_by_item_id)
 }
 
 fn load_icon_src(path: &Path) -> String {
@@ -800,12 +1024,12 @@ fn detach_main_window<R: tauri::Runtime>(_: &tauri::WebviewWindow<R>) {}
 
 #[cfg(target_os = "windows")]
 fn sync_overlay_visibility<R: tauri::Runtime>(app: &AppHandle<R>, runtime: &mut OverlayRuntime) {
-    let Some(window) = app.get_webview_window(OVERLAY_WINDOW_LABEL) else {
-        return;
-    };
+    let Some(window) = app.get_webview_window(OVERLAY_WINDOW_LABEL) else { return; };
 
     let is_visible = window.is_visible().unwrap_or(false);
+    let is_minimized = window.is_minimized().unwrap_or(false);
 
+    // Если оверлей отключен — скрываем и сбрасываем счетчик
     if !runtime.overlay_enabled {
         runtime.overlay_visibility_misses = 0;
         if is_visible {
@@ -814,6 +1038,12 @@ fn sync_overlay_visibility<R: tauri::Runtime>(app: &AppHandle<R>, runtime: &mut 
         return;
     }
 
+    // Если окно свернуто пользователем — не показываем
+    if runtime.manually_minimized || is_minimized {
+        return;
+    }
+
+    // Проверяем можно ли показывать оверлей (игра на переднем плане)
     if is_overlay_allowed_foreground() {
         runtime.overlay_visibility_misses = 0;
         if !is_visible {
@@ -826,6 +1056,7 @@ fn sync_overlay_visibility<R: tauri::Runtime>(app: &AppHandle<R>, runtime: &mut 
         }
     }
 }
+
 
 #[cfg(not(target_os = "windows"))]
 fn sync_overlay_visibility<R: tauri::Runtime>(_: &AppHandle<R>, _: &mut OverlayRuntime) {}

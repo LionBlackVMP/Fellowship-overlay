@@ -15,7 +15,8 @@ export function useLogs() {
   const status = useAppSelector((state) => state.overlay.status);
   const error = useAppSelector((state) => state.overlay.error);
   const view = new URLSearchParams(window.location.search).get("view") ?? "settings";
-  const pollIntervalMs = view === "overlay" ? 500 : 1000;
+  const isOverlayView = view === "overlay";
+  const pollIntervalMs = 250;
 
   useEffect(() => {
     let cancelled = false;
@@ -48,7 +49,7 @@ export function useLogs() {
 
     const poll = async () => {
       try {
-        const nextSnapshot = await pollOverlayState(logPath);
+        const nextSnapshot = await pollOverlayState(logPath, isOverlayView);
 
         if (cancelled) {
           return;
@@ -66,6 +67,13 @@ export function useLogs() {
     };
 
     void poll();
+
+    if (!isOverlayView) {
+      return () => {
+        cancelled = true;
+      };
+    }
+
     const interval = window.setInterval(() => {
       void poll();
     }, pollIntervalMs);
@@ -74,7 +82,7 @@ export function useLogs() {
       cancelled = true;
       window.clearInterval(interval);
     };
-  }, [dispatch, logPath, pollIntervalMs]);
+  }, [dispatch, isOverlayView, logPath, pollIntervalMs]);
 
   return useMemo(
     () => ({
@@ -82,8 +90,7 @@ export function useLogs() {
       logPath,
       setLogPath: (value: string) => dispatch(setLogPath(value)),
       setOverlayEnabled: async (enabled: boolean) => {
-        await setOverlayEnabledApi(enabled);
-        const nextSnapshot = await pollOverlayState(logPath);
+        const nextSnapshot = await setOverlayEnabledApi(enabled);
         dispatch(applyPollingSuccess(nextSnapshot));
       },
       status,

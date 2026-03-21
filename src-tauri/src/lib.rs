@@ -4,8 +4,8 @@ mod skill_catalog;
 
 use commands::{get_default_log_path, get_skill_catalog};
 use log_reader::{
-    minimize_overlay, open_main_menu, poll_overlay_state, set_overlay_enabled,
-    show_main_window, start_overlay_drag, OverlayState,
+    get_overlay_state, minimize_overlay, open_main_menu, set_overlay_enabled, show_main_window,
+    start_overlay_drag, OverlayState,
 };
 use serde::{Deserialize, Serialize};
 use std::fs;
@@ -125,7 +125,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             get_skill_catalog,
             get_default_log_path,
-            poll_overlay_state,
+            get_overlay_state,
             minimize_overlay,
             start_overlay_drag,
             open_main_menu,
