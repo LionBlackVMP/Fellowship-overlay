@@ -1,3 +1,8 @@
+use crate::window_position::{
+resize_overlay_window
+};
+use crate::constants::{DEFAULT_LOG_DIR, OVERLAY_WINDOW_LABEL, GAME_PROCESS_NAMES};
+
 use base64::Engine;
 use raw_window_handle::{HasWindowHandle, RawWindowHandle};
 use serde::{Deserialize, Serialize};
@@ -7,10 +12,8 @@ use std::fs::File;
 use std::io::{Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
-use std::thread;
-use std::time::Duration;
 use std::time::{SystemTime, UNIX_EPOCH};
-use tauri::{AppHandle, Emitter, LogicalSize, Manager, State, WebviewWindow};
+use tauri::{AppHandle, Emitter, Manager, State, WebviewWindow};
 #[cfg(target_os = "windows")]
 use windows::Win32::Foundation::{CloseHandle, HWND};
 #[cfg(target_os = "windows")]
@@ -23,13 +26,7 @@ use windows::Win32::UI::WindowsAndMessaging::{
     GWL_EXSTYLE, GWL_HWNDPARENT, WS_EX_APPWINDOW, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW,
 };
 
-pub const DEFAULT_LOG_DIR: &str =
-    r"C:\Program Files (x86)\Steam\steamapps\common\Fellowship\fellowship\Saved\CombatLogs";
-const OVERLAY_WINDOW_LABEL: &str = "overlay";
 const OVERLAY_SNAPSHOT_EVENT: &str = "overlay://snapshot";
-const OVERLAY_ERROR_EVENT: &str = "overlay://error";
-#[cfg(target_os = "windows")]
-const GAME_PROCESS_NAMES: &[&str] = &["fellowship.exe", "fellowship-win64-shipping.exe"];
 
 #[derive(Default)]
 struct ReaderCursor {
@@ -209,43 +206,6 @@ pub fn set_overlay_enabled(
         *last_snapshot = Some(snapshot.clone());
     }
     Ok(snapshot)
-}
-
-pub fn start_overlay_monitor<R: tauri::Runtime>(app: AppHandle<R>) {
-    thread::spawn(move || loop {
-        {
-            let state = app.state::<OverlayState>();
-            match refresh_overlay_snapshot(DEFAULT_LOG_DIR, true, &state, &app) {
-                Ok(snapshot) => {
-                    let should_emit = {
-                        let mut last_snapshot = match state.last_snapshot.lock() {
-                            Ok(guard) => guard,
-                            Err(_) => {
-                                thread::sleep(Duration::from_millis(250));
-                                continue;
-                            }
-                        };
-
-                        if last_snapshot.as_ref() == Some(&snapshot) {
-                            false
-                        } else {
-                            *last_snapshot = Some(snapshot.clone());
-                            true
-                        }
-                    };
-
-                    if should_emit {
-                        let _ = app.emit(OVERLAY_SNAPSHOT_EVENT, &snapshot);
-                    }
-                }
-                Err(error) => {
-                    let _ = app.emit(OVERLAY_ERROR_EVENT, error);
-                }
-            }
-        }
-
-        thread::sleep(Duration::from_millis(250));
-    });
 }
 
 fn refresh_overlay_snapshot<R: tauri::Runtime>(
@@ -469,48 +429,6 @@ fn build_snapshot(runtime: &OverlayRuntime, resolved_path: String) -> OverlaySna
         dungeon_active: runtime.dungeon_active,
         processed_line_count: runtime.processed_line_count,
         players,
-    }
-}
-
-fn resize_overlay_window<R: tauri::Runtime>(app: &AppHandle<R>, snapshot: &OverlaySnapshot) {
-    let Some(window) = app.get_webview_window(OVERLAY_WINDOW_LABEL) else {
-        return;
-    };
-
-    let player_count = snapshot.players.len().max(1) as f64;
-    let max_trinkets = snapshot
-        .players
-        .iter()
-        .map(|player| player.cooldowns.len())
-        .max()
-        .unwrap_or(1)
-        .max(1) as f64;
-
-    let outer_padding = 6.0;
-    let frame_gap = 3.0;
-    let frame_name_width = 82.0;
-    let frame_horizontal_padding = 12.0;
-    let trinket_width = 54.0;
-    let trinket_gap = 4.0;
-    let frame_height = 86.0;
-    let width = outer_padding * 2.0
-        + frame_name_width
-        + frame_horizontal_padding
-        + max_trinkets * trinket_width
-        + (max_trinkets - 1.0) * trinket_gap;
-    let height = outer_padding * 2.0 + player_count * frame_height + (player_count - 1.0) * frame_gap;
-
-    let should_resize = window
-        .inner_size()
-        .map(|size| {
-            let width_diff = (size.width as f64 - width).abs();
-            let height_diff = (size.height as f64 - height).abs();
-            width_diff > 1.0 || height_diff > 1.0
-        })
-        .unwrap_or(true);
-
-    if should_resize {
-        let _ = window.set_size(LogicalSize::new(width, height));
     }
 }
 

@@ -1,4 +1,5 @@
-use crate::log_reader::{resolve_latest_log_path, DEFAULT_LOG_DIR};
+use crate::log_reader::{resolve_latest_log_path};
+use crate::constants::{DEFAULT_LOG_DIR};
 use crate::skill_catalog::{build_catalog, SkillCatalog};
 use std::path::Path;
 use tauri::command;
