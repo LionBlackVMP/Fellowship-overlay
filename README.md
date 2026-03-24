@@ -2,6 +2,8 @@
 
 Compact Tauri + React overlay for **Fellowship** that tracks **trinket cooldowns** from the game's combat log and shows them in a small in-game party frame.
 
+Created by **LionBlackVMP**.
+
 ## What It Does
 
 - Watches the latest `CombatLog*.txt` file in the Fellowship `Saved/CombatLogs` folder

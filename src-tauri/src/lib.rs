@@ -58,6 +58,9 @@ pub fn run() {
                 .visible(false)
                 .build()?;
 
+                if let Some(icon) = app_icon.clone() {
+                    let _ = overlay_window.set_icon(icon);
+                }
                 let _ = overlay_window.set_shadow(false);
                 let _ = overlay_window.set_cursor_visible(true);
                 let _ = overlay_window.set_cursor_icon(CursorIcon::Default);
@@ -101,6 +104,9 @@ pub fn run() {
             tray_builder.build(app)?;
 
             if let Some(window) = app.get_webview_window(SETTINGS_WINDOW_LABEL) {
+                if let Some(icon) = app_icon.clone() {
+                    let _ = window.set_icon(icon);
+                }
                 restore_window_position(&window, saved_state.main);
                 let tracker = WindowTracker::new();
                 tracker.register(app.handle().clone(), &window, SETTINGS_WINDOW_LABEL);

@@ -2,6 +2,7 @@
   "name": "fellowship-overlay",
   "private": true,
   "version": "0.1.0",
+  "author": "LionBlackVMP",
   "type": "module",
   "scripts": {
     "dev": "vite",
