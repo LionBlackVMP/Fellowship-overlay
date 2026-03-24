@@ -1,5 +1,5 @@
 import { PayloadAction, createSlice } from "@reduxjs/toolkit";
-import { OverlaySnapshot, OverlayStatus } from "./overlayTypes";
+import { OverlayClientState, OverlaySnapshot, OverlayStatus } from "./overlayTypes";
 
 export type OverlayState = {
   snapshot: OverlaySnapshot | null;
@@ -31,37 +31,54 @@ const overlaySlice = createSlice({
     setSnapshot(state, action: PayloadAction<OverlaySnapshot | null>) {
       state.snapshot = action.payload;
     },
-    applyPollingSuccess(state, action: PayloadAction<OverlaySnapshot>) {
-      state.status = "watching";
-      state.error = null;
-      if (action.payload.resolved_path && action.payload.resolved_path !== state.logPath) {
-        state.logPath = action.payload.resolved_path;
-      }
+    applyServerUpdate(state, action: PayloadAction<OverlayClientState>) {
+      const nextSnapshot = action.payload.snapshot;
+      const nextStatus = action.payload.status;
+      const nextError = action.payload.error;
 
-      if (snapshotsEqual(state.snapshot, action.payload)) {
+      if (
+        state.status === nextStatus &&
+        state.error === nextError &&
+        snapshotsEqual(state.snapshot, nextSnapshot)
+      ) {
         return;
       }
 
-      state.snapshot = action.payload;
+      state.status = nextStatus;
+      state.error = nextError;
+      state.snapshot = nextSnapshot;
+
+      if (nextSnapshot?.resolved_path) {
+        state.logPath = nextSnapshot.configured_log_dir || nextSnapshot.resolved_path;
+      } else if (nextSnapshot?.configured_log_dir) {
+        state.logPath = nextSnapshot.configured_log_dir;
+      }
     },
   },
 });
 
-export const { applyPollingSuccess, setError, setLogPath, setSnapshot, setStatus } =
+export const { applyServerUpdate, setError, setLogPath, setSnapshot, setStatus } =
   overlaySlice.actions;
 
 export const overlayReducer = overlaySlice.reducer;
 
-function snapshotsEqual(left: OverlaySnapshot | null, right: OverlaySnapshot): boolean {
-  if (left === null) {
+function snapshotsEqual(
+  left: OverlaySnapshot | null,
+  right: OverlaySnapshot | null,
+): boolean {
+  if (left === right) {
+    return true;
+  }
+
+  if (left === null || right === null) {
     return false;
   }
 
   if (
+    left.configured_log_dir !== right.configured_log_dir ||
     left.resolved_path !== right.resolved_path ||
     left.overlay_enabled !== right.overlay_enabled ||
     left.dungeon_active !== right.dungeon_active ||
-    left.processed_line_count !== right.processed_line_count ||
     left.players.length !== right.players.length
   ) {
     return false;
@@ -75,6 +92,11 @@ function snapshotsEqual(left: OverlaySnapshot | null, right: OverlaySnapshot): b
       leftPlayer.name !== rightPlayer.name ||
       leftPlayer.class_color !== rightPlayer.class_color ||
       leftPlayer.class_id !== rightPlayer.class_id ||
+      leftPlayer.spirit_label !== rightPlayer.spirit_label ||
+      leftPlayer.spirit_current !== rightPlayer.spirit_current ||
+      leftPlayer.spirit_max !== rightPlayer.spirit_max ||
+      leftPlayer.spirit_progress !== rightPlayer.spirit_progress ||
+      leftPlayer.spirit_ready_at !== rightPlayer.spirit_ready_at ||
       leftPlayer.cooldowns.length !== rightPlayer.cooldowns.length
     ) {
       return false;
@@ -86,8 +108,10 @@ function snapshotsEqual(left: OverlaySnapshot | null, right: OverlaySnapshot): b
 
       if (
         leftCooldown.key !== rightCooldown.key ||
+        leftCooldown.relic_id !== rightCooldown.relic_id ||
+        leftCooldown.relic_name !== rightCooldown.relic_name ||
+        leftCooldown.duration_seconds !== rightCooldown.duration_seconds ||
         leftCooldown.remaining_seconds !== rightCooldown.remaining_seconds ||
-        leftCooldown.progress !== rightCooldown.progress ||
         leftCooldown.ready !== rightCooldown.ready ||
         leftCooldown.relic_icon_src !== rightCooldown.relic_icon_src
       ) {

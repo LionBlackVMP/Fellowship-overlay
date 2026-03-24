@@ -1,8 +1,8 @@
-use crate::log_reader::{resolve_latest_log_path};
-use crate::constants::{DEFAULT_LOG_DIR};
+use crate::app_settings::load_app_settings;
 use crate::skill_catalog::{build_catalog, SkillCatalog};
 use std::path::Path;
 use tauri::command;
+use tauri::AppHandle;
 
 #[command]
 pub fn get_skill_catalog() -> SkillCatalog {
@@ -12,6 +12,10 @@ pub fn get_skill_catalog() -> SkillCatalog {
 }
 
 #[command]
-pub fn get_default_log_path() -> Result<String, String> {
-    resolve_latest_log_path(DEFAULT_LOG_DIR).map(|path| path.to_string_lossy().to_string())
+pub fn get_default_log_path(app: AppHandle) -> Result<String, String> {
+    if let Some(saved_log_directory) = load_app_settings(&app).log_directory {
+        return Ok(saved_log_directory);
+    }
+
+    Ok(String::new())
 }

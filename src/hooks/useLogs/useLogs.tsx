@@ -1,12 +1,17 @@
-import { useEffect, useMemo } from "react";
-import { getDefaultLogPath, pollOverlayState, setOverlayEnabled as setOverlayEnabledApi } from "../../api";
+import { useEffect } from "react";
 import {
-  applyPollingSuccess,
-  setError,
-  setLogPath,
-  setStatus,
-} from "../../store/overlay";
+  chooseLogDirectory as chooseLogDirectoryApi,
+  getDefaultLogPath,
+  getOverlayState,
+  listenOverlayState,
+  setLogDirectory as setLogDirectoryApi,
+  setOverlayEnabled as setOverlayEnabledApi,
+} from "../../api";
 import { useAppDispatch, useAppSelector } from "../../store/hooks";
+import { applyServerUpdate, setError, setLogPath, setStatus } from "../../store/overlay";
+
+const BOOTSTRAP_ATTEMPTS = 8;
+const BOOTSTRAP_RETRY_DELAY_MS = 250;
 
 export function useLogs() {
   const dispatch = useAppDispatch();
@@ -14,88 +19,126 @@ export function useLogs() {
   const logPath = useAppSelector((state) => state.overlay.logPath);
   const status = useAppSelector((state) => state.overlay.status);
   const error = useAppSelector((state) => state.overlay.error);
-  const view = new URLSearchParams(window.location.search).get("view") ?? "settings";
-  const isOverlayView = view === "overlay";
-  const pollIntervalMs = 250;
 
   useEffect(() => {
     let cancelled = false;
+    let unlisten: (() => void) | null = null;
 
-    getDefaultLogPath()
-      .then((path) => {
-        if (!cancelled && path) {
-          dispatch(setLogPath(path));
-        }
-      })
-      .catch(() => {
-        // Keep the fallback path when the backend command is unavailable.
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [dispatch]);
-
-  useEffect(() => {
-    if (!logPath.trim()) {
-      dispatch(setStatus("idle"));
-      dispatch(setError("Specify the combat log path to start reading."));
-      return;
-    }
-
-    let cancelled = false;
     dispatch(setStatus("loading"));
     dispatch(setError(null));
 
-    const poll = async () => {
+    const wait = (ms: number) =>
+      new Promise((resolve) => {
+        window.setTimeout(resolve, ms);
+      });
+
+    const connectListener = async () => {
+      if (cancelled || unlisten) {
+        return;
+      }
+
+      const nextUnlisten = await listenOverlayState((nextState) => {
+        if (!cancelled) {
+          dispatch(applyServerUpdate(nextState));
+        }
+      });
+      if (cancelled) {
+        nextUnlisten();
+        return;
+      }
+      unlisten = nextUnlisten;
+    };
+
+    const connectLiveState = async () => {
+      await connectListener();
+
       try {
-        const nextSnapshot = await pollOverlayState(logPath, isOverlayView);
+        let initialState = null;
+        let lastError: unknown = null;
+
+        for (let attempt = 0; attempt < BOOTSTRAP_ATTEMPTS; attempt += 1) {
+          try {
+            initialState = await getOverlayState();
+            break;
+          } catch (nextError) {
+            lastError = nextError;
+
+            if (attempt < BOOTSTRAP_ATTEMPTS - 1) {
+              await wait(BOOTSTRAP_RETRY_DELAY_MS);
+            }
+          }
+        }
+
+        if (initialState === null) {
+          throw lastError instanceof Error ? lastError : new Error(String(lastError));
+        }
 
         if (cancelled) {
           return;
         }
-
-        dispatch(applyPollingSuccess(nextSnapshot));
-      } catch (err) {
-        if (cancelled) {
-          return;
+        dispatch(applyServerUpdate(initialState));
+      } catch (nextError) {
+        if (unlisten) {
+          unlisten();
+          unlisten = null;
         }
-
-        dispatch(setStatus("error"));
-        dispatch(setError(err instanceof Error ? err.message : String(err)));
+        if (!cancelled) {
+          dispatch(setStatus("error"));
+          dispatch(setError(nextError instanceof Error ? nextError.message : String(nextError)));
+        }
       }
     };
 
-    void poll();
+    const bootstrap = async () => {
+      try {
+        const savedLogPath = await getDefaultLogPath();
+        if (cancelled) {
+          return;
+        }
 
-    if (!isOverlayView) {
-      return () => {
-        cancelled = true;
-      };
-    }
+        dispatch(setLogPath(savedLogPath));
 
-    const interval = window.setInterval(() => {
-      void poll();
-    }, pollIntervalMs);
+        if (!savedLogPath.trim()) {
+          dispatch(setStatus("idle"));
+          await connectListener();
+          return;
+        }
+
+        await connectLiveState();
+      } catch (nextError) {
+        if (!cancelled) {
+          dispatch(setStatus("error"));
+          dispatch(setError(nextError instanceof Error ? nextError.message : String(nextError)));
+        }
+      }
+    };
+
+    void bootstrap();
 
     return () => {
       cancelled = true;
-      window.clearInterval(interval);
+      if (unlisten) {
+        unlisten();
+      }
     };
-  }, [dispatch, isOverlayView, logPath, pollIntervalMs]);
+  }, [dispatch]);
 
-  return useMemo(
-    () => ({
-      snapshot,
-      logPath,
-      setLogPath: (value: string) => dispatch(setLogPath(value)),
-      setOverlayEnabled: async (enabled: boolean) => {
-        const nextSnapshot = await setOverlayEnabledApi(enabled);
-        dispatch(applyPollingSuccess(nextSnapshot));
-      },
-      status,
-      error,
-    }),
-    [dispatch, error, logPath, snapshot, status],
-  );
+  return {
+    snapshot,
+    logPath,
+    status,
+    error,
+    setOverlayEnabled: async (enabled: boolean) => {
+      const nextState = await setOverlayEnabledApi(enabled);
+      dispatch(applyServerUpdate(nextState));
+    },
+    setLogDirectory: async (path: string) => {
+      const nextState = await setLogDirectoryApi(path);
+      dispatch(applyServerUpdate(nextState));
+    },
+    chooseLogDirectory: async () => {
+      const nextState = await chooseLogDirectoryApi();
+      dispatch(applyServerUpdate(nextState));
+    },
+  };
 }

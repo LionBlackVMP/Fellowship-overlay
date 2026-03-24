@@ -1,0 +1,64 @@
+{
+  "resources": [
+    {
+      "class_id": 2,
+      "class_name": "Elarion",
+      "resource_id": 4,
+      "label": "Spirit"
+    },
+    {
+      "class_id": 17,
+      "class_name": "Rime",
+      "resource_id": 4,
+      "label": "Spirit"
+    },
+    {
+      "class_id": 24,
+      "class_name": "Aeona",
+      "resource_id": 4,
+      "label": "Spirit"
+    },
+    {
+      "class_id": 25,
+      "class_name": "Xavian",
+      "resource_id": 4,
+      "label": "Spirit"
+    },
+    {
+      "class_id": 7,
+      "class_name": "Ardeos",
+      "resource_id": 4,
+      "label": "Spirit"
+    },
+    {
+      "class_id": 11,
+      "class_name": "Mara",
+      "resource_id": 4,
+      "label": "Spirit"
+    },
+    {
+      "class_id": 20,
+      "class_name": "Vigour",
+      "resource_id": 4,
+      "label": "Spirit"
+    },
+    {
+      "class_id": 22,
+      "class_name": "Helena",
+      "resource_id": 4,
+      "label": "Spirit"
+    },
+    {
+      "class_id": 10,
+      "class_name": "Tariq",
+      "resource_id": 4,
+      "label": "Spirit"
+    },
+    {
+      "class_id": 14,
+      "class_name": "Sylvie",
+      "resource_id": 4,
+      "label": "Spirit"
+    }
+  ]
+}

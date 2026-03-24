@@ -5,6 +5,7 @@ type SettingsViewProps = {
   logPath: string;
   status: OverlayStatus;
   error: string | null;
+  onChooseLogDirectory: () => void;
   onToggleOverlay: (enabled: boolean) => void;
 };
 
@@ -13,11 +14,11 @@ export function SettingsView({
   logPath,
   status,
   error,
+  onChooseLogDirectory,
   onToggleOverlay,
 }: SettingsViewProps) {
   const overlayEnabled = snapshot?.overlay_enabled ?? true;
-  const resolvedLogPath = snapshot?.resolved_path ?? logPath;
-  const formattedLogPath = resolvedLogPath.split("\\").join("\\\u200b").split("/").join("/\u200b");
+  const configuredLogDir = snapshot?.configured_log_dir ?? logPath;
 
   return (
     <div className="settings-shell">
@@ -26,8 +27,21 @@ export function SettingsView({
 
         <div className="settings-block">
           <label className="field">
-            <span>Combat log path</span>
-            <div className="text-input text-display">{formattedLogPath}</div>
+            <span>Choose the Logs subdirectory of your game installation:</span>
+            <div className="text-input path-picker-shell">
+              <div className="text-display path-picker-display">
+                <span className="path-picker-text">
+                  {configuredLogDir || "Select the folder that contains CombatLog*.txt files"}
+                </span>
+              </div>
+              <button
+                type="button"
+                className="toggle-button is-choose-action path-picker-button"
+                onClick={onChooseLogDirectory}
+              >
+                Choose...
+              </button>
+            </div>
           </label>
 
           <div className="status-row">

@@ -15,7 +15,7 @@ function formatOverlayTimer(seconds: number) {
 }
 
 function App() {
-  const { snapshot, logPath, setOverlayEnabled, status, error } = useLogs();
+  const { snapshot, logPath, setOverlayEnabled, chooseLogDirectory, status, error } = useLogs();
   const view = new URLSearchParams(window.location.search).get("view") ?? "settings";
 
   const startDragging = async () => {
@@ -37,7 +37,7 @@ function App() {
   if (view === "overlay") {
     return (
       <OverlayView
-        players={snapshot?.players ?? []}
+        players={snapshot?.players || []}
         onOpenMenu={() => {
           void openMainMenu();
         }}
@@ -55,6 +55,9 @@ function App() {
       logPath={logPath}
       status={status}
       error={error}
+      onChooseLogDirectory={() => {
+        void chooseLogDirectory();
+      }}
       onToggleOverlay={(enabled) => {
         void setOverlayEnabled(enabled);
       }}

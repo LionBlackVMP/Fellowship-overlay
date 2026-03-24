@@ -13,8 +13,10 @@
     "windows": [
       {
         "title": "fellowship-overlay",
-        "width": 760,
-        "height": 460,
+        "width": 980,
+        "height": 620,
+        "minWidth": 940,
+        "minHeight": 560,
         "resizable": true,
         "fullscreen": false,
         "transparent": false,

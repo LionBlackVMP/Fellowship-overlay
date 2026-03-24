@@ -1,3 +1,4 @@
+mod app_settings;
 mod commands;
 mod constants;
 mod log_reader;
@@ -6,15 +7,15 @@ mod window_position;
 
 use commands::{get_default_log_path, get_skill_catalog};
 use log_reader::{
-    get_overlay_state, minimize_overlay, open_main_menu, set_overlay_enabled, show_main_window,
-    start_overlay_drag, OverlayState,
+    choose_log_directory, get_overlay_state, minimize_overlay, open_main_menu, set_log_directory,
+    set_overlay_enabled, start_overlay_drag, OverlayState,
 };
 use window_position::{
-    register_window_position_tracking, restore_window_position,
-    load_window_state
+    WindowTracker, restore_window_position, load_window_state, show_main_window,
 };
 
 use crate::constants::{SETTINGS_WINDOW_LABEL, OVERLAY_WINDOW_LABEL};
+use std::sync::Arc;
 use tauri::image::Image;
 use tauri::menu::MenuBuilder;
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
@@ -34,8 +35,9 @@ pub fn run() {
     let app_icon = Image::from_bytes(include_bytes!("../icons/icon.png")).ok();
 
     tauri::Builder::default()
+        .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
-        .manage(OverlayState::new())
+        .manage(Arc::new(OverlayState::new()))
         .setup(move |app| {
             let saved_state = load_window_state(app.handle().clone());
 
@@ -53,14 +55,15 @@ pub fn run() {
                 .shadow(false)
                 .always_on_top(true)
                 .skip_taskbar(true)
-                .visible(true)
+                .visible(false)
                 .build()?;
 
                 let _ = overlay_window.set_shadow(false);
                 let _ = overlay_window.set_cursor_visible(true);
                 let _ = overlay_window.set_cursor_icon(CursorIcon::Default);
                 restore_window_position(&overlay_window, saved_state.overlay);
-                register_window_position_tracking(app.handle().clone(), &overlay_window, OVERLAY_WINDOW_LABEL);
+                let tracker = WindowTracker::new();
+                tracker.register(app.handle().clone(), &overlay_window, OVERLAY_WINDOW_LABEL);
             }
 
             let show_item = tauri::menu::MenuItem::with_id(app, TRAY_SHOW_ID, "Show overlay", true, None::<&str>)?;
@@ -99,7 +102,8 @@ pub fn run() {
 
             if let Some(window) = app.get_webview_window(SETTINGS_WINDOW_LABEL) {
                 restore_window_position(&window, saved_state.main);
-                register_window_position_tracking(app.handle().clone(), &window, SETTINGS_WINDOW_LABEL);
+                let tracker = WindowTracker::new();
+                tracker.register(app.handle().clone(), &window, SETTINGS_WINDOW_LABEL);
                 let app_handle = app.handle().clone();
                 window.on_window_event(move |event| {
                     if let tauri::WindowEvent::CloseRequested { api, .. } = event {
@@ -109,16 +113,18 @@ pub fn run() {
                 });
             }
 
-            hide_main_window(&app.handle());
+            show_main_window(&app.handle());
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
             get_skill_catalog,
             get_default_log_path,
+            choose_log_directory,
             get_overlay_state,
             minimize_overlay,
             start_overlay_drag,
             open_main_menu,
+            set_log_directory,
             set_overlay_enabled
         ])
         .run(tauri::generate_context!())
