@@ -7,6 +7,14 @@ Created by **LionBlackVMP**.
 Compact desktop overlay for **Fellowship**.  
 It reads the game's combat logs and shows party **trinket cooldowns** and **Spirit** in a small in-game frame.
 
+## Important Note
+
+The overlay depends on Fellowship combat logs, so updates are **not instant**.
+
+- In normal gameplay, log delay is usually around **5-10 seconds**
+- In very large or chaotic fights, the log may skip minor events and write only the main ones
+- In those cases, trinket updates can be delayed much more, sometimes up to **~30 seconds**
+
 ## Install
 
 Download the latest installer from [GitHub Releases](https://github.com/LionBlackVMP/Fellowship-overlay/releases).
