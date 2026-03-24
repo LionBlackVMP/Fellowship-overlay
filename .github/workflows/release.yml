@@ -16,12 +16,12 @@ concurrency:
 jobs:
   windows-release:
     runs-on: windows-latest
-    env:
-      CI_VERSION: 0.1.${{ github.run_number }}
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Setup Node
         uses: actions/setup-node@v4
@@ -39,6 +39,42 @@ jobs:
 
       - name: Install frontend dependencies
         run: npm ci
+
+      - name: Resolve next version
+        id: version
+        shell: pwsh
+        run: |
+          git fetch --tags --force
+
+          $tags = git tag --list "v0.*.*"
+          $latest = $tags |
+            ForEach-Object {
+              if ($_ -match '^v0\.(\d+)\.(\d+)$') {
+                [PSCustomObject]@{
+                  Tag = $_
+                  Minor = [int]$Matches[1]
+                  Patch = [int]$Matches[2]
+                }
+              }
+            } |
+            Sort-Object Minor, Patch |
+            Select-Object -Last 1
+
+          if ($null -eq $latest) {
+            $minor = 1
+            $patch = 0
+          } else {
+            $minor = $latest.Minor
+            $patch = $latest.Patch + 1
+            if ($patch -gt 9) {
+              $minor += 1
+              $patch = 0
+            }
+          }
+
+          $version = "0.$minor.$patch"
+          "CI_VERSION=$version" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "version=$version" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
 
       - name: Apply CI version
         shell: pwsh
